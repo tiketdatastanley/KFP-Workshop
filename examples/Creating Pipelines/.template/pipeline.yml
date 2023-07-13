@@ -1,0 +1,210 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: pipeline-func-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.6.3, pipelines.kubeflow.org/pipeline_compilation_time: '2023-07-13T08:15:09.847739',
+    pipelines.kubeflow.org/pipeline_spec: '{"inputs": [{"name": "num1", "type": "Integer"},
+      {"name": "num2", "type": "Integer"}, {"name": "num3", "type": "Integer"}, {"name":
+      "docker_image_tag", "type": "String"}], "name": "Pipeline func"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.6.3}
+spec:
+  entrypoint: pipeline-func
+  templates:
+  - name: add-op
+    container:
+      args: [--num1, '{{inputs.parameters.num1}}', --num2, '{{inputs.parameters.num2}}',
+        '----output-paths', /tmp/outputs/result/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def add_op(num1, num2):
+            from utility import imported_func
+
+            imported_func()
+
+            return (num1 + num2,)
+
+        def _serialize_int(int_value: int) -> str:
+            if isinstance(int_value, str):
+                return int_value
+            if not isinstance(int_value, int):
+                raise TypeError('Value "{}" has type "{}" instead of int.'.format(str(int_value), str(type(int_value))))
+            return str(int_value)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Add op', description='')
+        _parser.add_argument("--num1", dest="num1", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--num2", dest="num2", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = add_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_int,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+    inputs:
+      parameters:
+      - {name: docker_image_tag}
+      - {name: num1}
+      - {name: num2}
+    outputs:
+      parameters:
+      - name: add-op-result
+        valueFrom: {path: /tmp/outputs/result/data}
+      artifacts:
+      - {name: add-op-result, path: /tmp/outputs/result/data}
+    metadata:
+      labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.6.3, pipelines.kubeflow.org/pipeline-sdk-type: kfp}
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--num1", {"inputValue": "num1"}, "--num2", {"inputValue": "num2"},
+          "----output-paths", {"outputPath": "result"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def add_op(num1, num2):\n    from utility
+          import imported_func\n\n    imported_func()\n\n    return (num1 + num2,)\n\ndef
+          _serialize_int(int_value: int) -> str:\n    if isinstance(int_value, str):\n        return
+          int_value\n    if not isinstance(int_value, int):\n        raise TypeError(''Value
+          \"{}\" has type \"{}\" instead of int.''.format(str(int_value), str(type(int_value))))\n    return
+          str(int_value)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Add
+          op'', description='''')\n_parser.add_argument(\"--num1\", dest=\"num1\",
+          type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--num2\",
+          dest=\"num2\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = add_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_int,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "num1", "type": "Integer"},
+          {"name": "num2", "type": "Integer"}], "name": "Add op", "outputs": [{"name":
+          "result", "type": "Integer"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"num1": "{{inputs.parameters.num1}}",
+          "num2": "{{inputs.parameters.num2}}"}'}
+  - name: pipeline-func
+    inputs:
+      parameters:
+      - {name: docker_image_tag}
+      - {name: num1}
+      - {name: num2}
+      - {name: num3}
+    dag:
+      tasks:
+      - name: add-op
+        template: add-op
+        arguments:
+          parameters:
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: num1, value: '{{inputs.parameters.num1}}'}
+          - {name: num2, value: '{{inputs.parameters.num2}}'}
+      - name: substract-op
+        template: substract-op
+        dependencies: [add-op]
+        arguments:
+          parameters:
+          - {name: add-op-result, value: '{{tasks.add-op.outputs.parameters.add-op-result}}'}
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: num3, value: '{{inputs.parameters.num3}}'}
+  - name: substract-op
+    container:
+      args: [--num1, '{{inputs.parameters.add-op-result}}', --num2, '{{inputs.parameters.num3}}',
+        '----output-paths', /tmp/outputs/result/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def substract_op(num1, num2):
+            from utility import imported_func
+
+            imported_func()
+
+            return (num1 - num2,)
+
+        def _serialize_int(int_value: int) -> str:
+            if isinstance(int_value, str):
+                return int_value
+            if not isinstance(int_value, int):
+                raise TypeError('Value "{}" has type "{}" instead of int.'.format(str(int_value), str(type(int_value))))
+            return str(int_value)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Substract op', description='')
+        _parser.add_argument("--num1", dest="num1", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--num2", dest="num2", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = substract_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_int,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+    inputs:
+      parameters:
+      - {name: add-op-result}
+      - {name: docker_image_tag}
+      - {name: num3}
+    outputs:
+      artifacts:
+      - {name: substract-op-result, path: /tmp/outputs/result/data}
+    metadata:
+      labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.6.3, pipelines.kubeflow.org/pipeline-sdk-type: kfp}
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--num1", {"inputValue": "num1"}, "--num2", {"inputValue": "num2"},
+          "----output-paths", {"outputPath": "result"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def substract_op(num1, num2):\n    from
+          utility import imported_func\n\n    imported_func()\n\n    return (num1
+          - num2,)\n\ndef _serialize_int(int_value: int) -> str:\n    if isinstance(int_value,
+          str):\n        return int_value\n    if not isinstance(int_value, int):\n        raise
+          TypeError(''Value \"{}\" has type \"{}\" instead of int.''.format(str(int_value),
+          str(type(int_value))))\n    return str(int_value)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Substract op'', description='''')\n_parser.add_argument(\"--num1\",
+          dest=\"num1\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--num2\",
+          dest=\"num2\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = substract_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_int,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "num1", "type": "Integer"},
+          {"name": "num2", "type": "Integer"}], "name": "Substract op", "outputs":
+          [{"name": "result", "type": "Integer"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"num1": "{{inputs.parameters.add-op-result}}",
+          "num2": "{{inputs.parameters.num3}}"}'}
+  arguments:
+    parameters:
+    - {name: num1}
+    - {name: num2}
+    - {name: num3}
+    - {name: docker_image_tag}
+  serviceAccountName: pipeline-runner
