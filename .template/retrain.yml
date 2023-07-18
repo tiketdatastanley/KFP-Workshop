@@ -1,0 +1,878 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: workshop-retrain-model-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-07-17T21:24:06.378075',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "Create model", "inputs":
+      [{"name": "run_name", "type": "String"}, {"name": "experiment", "type": "String"},
+      {"name": "config_gcs_uri", "type": "String"}, {"name": "secret_name", "type":
+      "String"}, {"name": "docker_image_tag", "type": "String"}], "name": "[WORKSHOP]
+      Retrain Model"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22}
+spec:
+  entrypoint: workshop-retrain-model
+  templates:
+  - name: create-mlflow-parent-run-op
+    container:
+      args: [--pod-name, '{{pod.name}}', --run-name, '{{inputs.parameters.run_name}}',
+        --experiment, '{{inputs.parameters.experiment}}', '----output-paths', /tmp/outputs/run_id/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def create_mlflow_parent_run_op(
+            pod_name,
+            run_name,
+            experiment,
+        ):
+            import mlflow
+            from mlflow import MlflowClient
+            from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME
+
+            client = MlflowClient()
+
+            experiment_id = client.get_experiment_by_name(experiment).experiment_id
+            run = client.create_run(
+                experiment_id=experiment_id,
+                tags={MLFLOW_RUN_NAME: run_name},
+            )
+
+            with mlflow.start_run(run_id=run.info.run_id):
+                workflow_name = "-".join(pod_name.split("-")[:-1])
+                mlflow.set_tag("kubeflow_workflow_name", workflow_name)
+
+            return (run.info.run_id,)
+
+        def _serialize_str(str_value: str) -> str:
+            if not isinstance(str_value, str):
+                raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                    str(str_value), str(type(str_value))))
+            return str_value
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Create mlflow parent run op', description='')
+        _parser.add_argument("--pod-name", dest="pod_name", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--run-name", dest="run_name", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--experiment", dest="experiment", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = create_mlflow_parent_run_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      envFrom:
+      - secretRef: {name: '{{inputs.parameters.secret_name}}'}
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+      resources:
+        limits: {memory: 4G, cpu: '2'}
+        requests: {memory: 4G, cpu: '2'}
+    inputs:
+      parameters:
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: run_name}
+      - {name: secret_name}
+    outputs:
+      parameters:
+      - name: create-mlflow-parent-run-op-run_id
+        valueFrom: {path: /tmp/outputs/run_id/data}
+      artifacts:
+      - {name: create-mlflow-parent-run-op-run_id, path: /tmp/outputs/run_id/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Create Parent Run, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--pod-name", {"inputValue": "pod_name"}, "--run-name",
+          {"inputValue": "run_name"}, "--experiment", {"inputValue": "experiment"},
+          "----output-paths", {"outputPath": "run_id"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def create_mlflow_parent_run_op(\n    pod_name,\n    run_name,\n    experiment,\n):\n    import
+          mlflow\n    from mlflow import MlflowClient\n    from mlflow.utils.mlflow_tags
+          import MLFLOW_RUN_NAME\n\n    client = MlflowClient()\n\n    experiment_id
+          = client.get_experiment_by_name(experiment).experiment_id\n    run = client.create_run(\n        experiment_id=experiment_id,\n        tags={MLFLOW_RUN_NAME:
+          run_name},\n    )\n\n    with mlflow.start_run(run_id=run.info.run_id):\n        workflow_name
+          = \"-\".join(pod_name.split(\"-\")[:-1])\n        mlflow.set_tag(\"kubeflow_workflow_name\",
+          workflow_name)\n\n    return (run.info.run_id,)\n\ndef _serialize_str(str_value:
+          str) -> str:\n    if not isinstance(str_value, str):\n        raise TypeError(''Value
+          \"{}\" has type \"{}\" instead of str.''.format(\n            str(str_value),
+          str(type(str_value))))\n    return str_value\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Create mlflow parent run op'', description='''')\n_parser.add_argument(\"--pod-name\",
+          dest=\"pod_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--run-name\",
+          dest=\"run_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--experiment\",
+          dest=\"experiment\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = create_mlflow_parent_run_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_str,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "pod_name", "type": "String"},
+          {"name": "run_name", "type": "String"}, {"name": "experiment", "type": "String"}],
+          "name": "Create mlflow parent run op", "outputs": [{"name": "run_id", "type":
+          "String"}]}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"experiment":
+          "{{inputs.parameters.experiment}}", "pod_name": "{{pod.name}}", "run_name":
+          "{{inputs.parameters.run_name}}"}', pipelines.kubeflow.org/max_cache_staleness: P0D}
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: data-generation-op
+    container:
+      args: [--config-gcs-path, '{{inputs.parameters.config_gcs_uri}}', --experiment,
+        '{{inputs.parameters.experiment}}', --parent-run-id, '{{inputs.parameters.create-mlflow-parent-run-op-run_id}}',
+        '----output-paths', /tmp/outputs/run_id/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def data_generation_op(
+            config_gcs_path, experiment, parent_run_id
+        ):
+            import mlflow
+            from mlflow import MlflowClient
+            from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME
+
+            from caelum.config_parser import Config
+
+            from src.common.constant import Path, Folder
+            from src.common.utility import download_file, download_files, setup_folder
+
+            from src.operators.data_generation.core import DataGenerator
+
+            # Setup empty folder
+            setup_folder()
+
+            # Downloading config
+            download_file(config_gcs_path, Path.CONFIG)
+
+            # Load config
+            config = Config(Path.CONFIG)
+
+            # Downloading dependencies
+            deps = config["dependencies"]
+            deps = [
+                (deps["query_train"], Path.QUERY_TRAIN),
+                (deps["query_val"], Path.QUERY_VAL),
+                (deps["query_test"], Path.QUERY_TEST),
+            ]
+            download_files(deps)
+
+            client = MlflowClient()
+
+            # Create mlflow run
+            experiment_id = client.get_experiment_by_name(experiment).experiment_id
+            run = client.create_run(
+                experiment_id=experiment_id,
+                tags={MLFLOW_PARENT_RUN_ID: parent_run_id, MLFLOW_RUN_NAME: "data_generation"},
+            )
+
+            # Run core functionality
+            with mlflow.start_run(run_id=run.info.run_id):
+                generator = DataGenerator(config)
+                generator()
+
+                # Logging artifacts
+                mlflow.log_artifacts(Folder.DATA)
+
+            return (run.info.run_id,)
+
+        def _serialize_str(str_value: str) -> str:
+            if not isinstance(str_value, str):
+                raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                    str(str_value), str(type(str_value))))
+            return str_value
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Data generation op', description='')
+        _parser.add_argument("--config-gcs-path", dest="config_gcs_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--experiment", dest="experiment", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--parent-run-id", dest="parent_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = data_generation_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      envFrom:
+      - secretRef: {name: '{{inputs.parameters.secret_name}}'}
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+      resources:
+        limits: {memory: 4G, cpu: '2'}
+        requests: {memory: 4G, cpu: '2'}
+    inputs:
+      parameters:
+      - {name: config_gcs_uri}
+      - {name: create-mlflow-parent-run-op-run_id}
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: secret_name}
+    outputs:
+      parameters:
+      - name: data-generation-op-run_id
+        valueFrom: {path: /tmp/outputs/run_id/data}
+      artifacts:
+      - {name: data-generation-op-run_id, path: /tmp/outputs/run_id/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Data Generation, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--config-gcs-path", {"inputValue": "config_gcs_path"},
+          "--experiment", {"inputValue": "experiment"}, "--parent-run-id", {"inputValue":
+          "parent_run_id"}, "----output-paths", {"outputPath": "run_id"}], "command":
+          ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def data_generation_op(\n    config_gcs_path,
+          experiment, parent_run_id\n):\n    import mlflow\n    from mlflow import
+          MlflowClient\n    from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID,
+          MLFLOW_RUN_NAME\n\n    from caelum.config_parser import Config\n\n    from
+          src.common.constant import Path, Folder\n    from src.common.utility import
+          download_file, download_files, setup_folder\n\n    from src.operators.data_generation.core
+          import DataGenerator\n\n    # Setup empty folder\n    setup_folder()\n\n    #
+          Downloading config\n    download_file(config_gcs_path, Path.CONFIG)\n\n    #
+          Load config\n    config = Config(Path.CONFIG)\n\n    # Downloading dependencies\n    deps
+          = config[\"dependencies\"]\n    deps = [\n        (deps[\"query_train\"],
+          Path.QUERY_TRAIN),\n        (deps[\"query_val\"], Path.QUERY_VAL),\n        (deps[\"query_test\"],
+          Path.QUERY_TEST),\n    ]\n    download_files(deps)\n\n    client = MlflowClient()\n\n    #
+          Create mlflow run\n    experiment_id = client.get_experiment_by_name(experiment).experiment_id\n    run
+          = client.create_run(\n        experiment_id=experiment_id,\n        tags={MLFLOW_PARENT_RUN_ID:
+          parent_run_id, MLFLOW_RUN_NAME: \"data_generation\"},\n    )\n\n    # Run
+          core functionality\n    with mlflow.start_run(run_id=run.info.run_id):\n        generator
+          = DataGenerator(config)\n        generator()\n\n        # Logging artifacts\n        mlflow.log_artifacts(Folder.DATA)\n\n    return
+          (run.info.run_id,)\n\ndef _serialize_str(str_value: str) -> str:\n    if
+          not isinstance(str_value, str):\n        raise TypeError(''Value \"{}\"
+          has type \"{}\" instead of str.''.format(\n            str(str_value), str(type(str_value))))\n    return
+          str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Data
+          generation op'', description='''')\n_parser.add_argument(\"--config-gcs-path\",
+          dest=\"config_gcs_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--experiment\",
+          dest=\"experiment\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--parent-run-id\",
+          dest=\"parent_run_id\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = data_generation_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_str,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "config_gcs_path", "type":
+          "String"}, {"name": "experiment", "type": "String"}, {"name": "parent_run_id",
+          "type": "String"}], "name": "Data generation op", "outputs": [{"name": "run_id",
+          "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"config_gcs_path":
+          "{{inputs.parameters.config_gcs_uri}}", "experiment": "{{inputs.parameters.experiment}}",
+          "parent_run_id": "{{inputs.parameters.create-mlflow-parent-run-op-run_id}}"}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: evaluation-op
+    container:
+      args: [--parent-run-id, '{{inputs.parameters.create-mlflow-parent-run-op-run_id}}',
+        --data-run-id, '{{inputs.parameters.data-generation-op-run_id}}', --training-run-id,
+        '{{inputs.parameters.training-op-run_id}}', --config-gcs-path, '{{inputs.parameters.config_gcs_uri}}',
+        --experiment, '{{inputs.parameters.experiment}}', '----output-paths', /tmp/outputs/run_id/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def evaluation_op(
+            parent_run_id,
+            data_run_id,
+            training_run_id,
+            config_gcs_path,
+            experiment,
+        ):
+            import mlflow
+            from mlflow import MlflowClient
+            from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME
+
+            from caelum.config_parser import Config
+
+            from src.common.constant import Path, Folder
+            from src.common.utility import (
+                download_file,
+                download_artifacts,
+                setup_folder,
+                load_mlflow_model,
+                callback_metrics,
+            )
+
+            from src.operators.evaluation.core import Evaluator
+
+            # Setup empty folder
+            setup_folder()
+
+            # Downloading config
+            download_file(config_gcs_path, Path.CONFIG)
+
+            # Load config
+            config = Config(Path.CONFIG)
+
+            # Downloading dependencies
+            download_artifacts(data_run_id, Folder.DATA)
+
+            client = MlflowClient()
+
+            # Create mlflow run
+            experiment_id = client.get_experiment_by_name(experiment).experiment_id
+            run = client.create_run(
+                experiment_id=experiment_id,
+                tags={MLFLOW_PARENT_RUN_ID: parent_run_id, MLFLOW_RUN_NAME: "evaluation"},
+            )
+
+            # Run core functionality
+            with mlflow.start_run(run_id=run.info.run_id):
+                model = load_mlflow_model(training_run_id, "model")
+                evaluator = Evaluator(model, config)
+                evaluator(callback_metrics=callback_metrics)
+
+            return (run.info.run_id,)
+
+        def _serialize_str(str_value: str) -> str:
+            if not isinstance(str_value, str):
+                raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                    str(str_value), str(type(str_value))))
+            return str_value
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Evaluation op', description='')
+        _parser.add_argument("--parent-run-id", dest="parent_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--data-run-id", dest="data_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--training-run-id", dest="training_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--config-gcs-path", dest="config_gcs_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--experiment", dest="experiment", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = evaluation_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      envFrom:
+      - secretRef: {name: '{{inputs.parameters.secret_name}}'}
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+      resources:
+        limits: {memory: 4G, cpu: '2'}
+        requests: {memory: 4G, cpu: '2'}
+    inputs:
+      parameters:
+      - {name: config_gcs_uri}
+      - {name: create-mlflow-parent-run-op-run_id}
+      - {name: data-generation-op-run_id}
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: secret_name}
+      - {name: training-op-run_id}
+    outputs:
+      artifacts:
+      - {name: evaluation-op-run_id, path: /tmp/outputs/run_id/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Evaluation, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--parent-run-id", {"inputValue": "parent_run_id"},
+          "--data-run-id", {"inputValue": "data_run_id"}, "--training-run-id", {"inputValue":
+          "training_run_id"}, "--config-gcs-path", {"inputValue": "config_gcs_path"},
+          "--experiment", {"inputValue": "experiment"}, "----output-paths", {"outputPath":
+          "run_id"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\"
+          \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def
+          evaluation_op(\n    parent_run_id,\n    data_run_id,\n    training_run_id,\n    config_gcs_path,\n    experiment,\n):\n    import
+          mlflow\n    from mlflow import MlflowClient\n    from mlflow.utils.mlflow_tags
+          import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME\n\n    from caelum.config_parser
+          import Config\n\n    from src.common.constant import Path, Folder\n    from
+          src.common.utility import (\n        download_file,\n        download_artifacts,\n        setup_folder,\n        load_mlflow_model,\n        callback_metrics,\n    )\n\n    from
+          src.operators.evaluation.core import Evaluator\n\n    # Setup empty folder\n    setup_folder()\n\n    #
+          Downloading config\n    download_file(config_gcs_path, Path.CONFIG)\n\n    #
+          Load config\n    config = Config(Path.CONFIG)\n\n    # Downloading dependencies\n    download_artifacts(data_run_id,
+          Folder.DATA)\n\n    client = MlflowClient()\n\n    # Create mlflow run\n    experiment_id
+          = client.get_experiment_by_name(experiment).experiment_id\n    run = client.create_run(\n        experiment_id=experiment_id,\n        tags={MLFLOW_PARENT_RUN_ID:
+          parent_run_id, MLFLOW_RUN_NAME: \"evaluation\"},\n    )\n\n    # Run core
+          functionality\n    with mlflow.start_run(run_id=run.info.run_id):\n        model
+          = load_mlflow_model(training_run_id, \"model\")\n        evaluator = Evaluator(model,
+          config)\n        evaluator(callback_metrics=callback_metrics)\n\n    return
+          (run.info.run_id,)\n\ndef _serialize_str(str_value: str) -> str:\n    if
+          not isinstance(str_value, str):\n        raise TypeError(''Value \"{}\"
+          has type \"{}\" instead of str.''.format(\n            str(str_value), str(type(str_value))))\n    return
+          str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Evaluation
+          op'', description='''')\n_parser.add_argument(\"--parent-run-id\", dest=\"parent_run_id\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--data-run-id\",
+          dest=\"data_run_id\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--training-run-id\",
+          dest=\"training_run_id\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--config-gcs-path\",
+          dest=\"config_gcs_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--experiment\",
+          dest=\"experiment\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = evaluation_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_str,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "parent_run_id", "type": "String"},
+          {"name": "data_run_id", "type": "String"}, {"name": "training_run_id", "type":
+          "String"}, {"name": "config_gcs_path", "type": "String"}, {"name": "experiment",
+          "type": "String"}], "name": "Evaluation op", "outputs": [{"name": "run_id",
+          "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"config_gcs_path":
+          "{{inputs.parameters.config_gcs_uri}}", "data_run_id": "{{inputs.parameters.data-generation-op-run_id}}",
+          "experiment": "{{inputs.parameters.experiment}}", "parent_run_id": "{{inputs.parameters.create-mlflow-parent-run-op-run_id}}",
+          "training_run_id": "{{inputs.parameters.training-op-run_id}}"}', pipelines.kubeflow.org/max_cache_staleness: P0D}
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: training-op
+    container:
+      args: [--parent-run-id, '{{inputs.parameters.create-mlflow-parent-run-op-run_id}}',
+        --data-run-id, '{{inputs.parameters.data-generation-op-run_id}}', --config-gcs-path,
+        '{{inputs.parameters.config_gcs_uri}}', --experiment, '{{inputs.parameters.experiment}}',
+        --tuning-run-id, '{{inputs.parameters.tuning-op-run_id}}', '----output-paths',
+        /tmp/outputs/run_id/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def training_op(
+            parent_run_id,
+            data_run_id,
+            config_gcs_path,
+            experiment,
+            tuning_run_id = None,
+        ):
+            import os
+            from tempfile import TemporaryDirectory
+
+            import pandas as pd
+            import mlflow
+            from mlflow import MlflowClient
+            from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME
+
+            from caelum.config_parser import Config
+
+            from src.common.constant import Path, Folder
+            from src.common.utility import (
+                download_file,
+                download_artifacts,
+                setup_folder,
+                callback_params,
+                callback_metrics,
+                callback_artifact,
+                callback_model,
+            )
+
+            from src.operators.training.core import Trainer, select_best_parameters
+
+            # Setup empty folder
+            setup_folder()
+
+            # Downloading config
+            download_file(config_gcs_path, Path.CONFIG)
+
+            # Load config
+            config = Config(Path.CONFIG)
+
+            # Downloading dependencies
+            download_artifacts(data_run_id, Folder.DATA)
+
+            # Get model params from tuning step (if specified)
+            params = {}
+
+            if tuning_run_id:
+                with TemporaryDirectory() as tmpdir:
+                    mlflow.artifacts.download_artifacts(
+                        run_id=tuning_run_id, artifact_path="summary.csv", dst_path=tmpdir
+                    )
+                    summary = pd.read_csv(os.path.join(tmpdir, "summary.csv"))
+                params = select_best_parameters(summary)
+
+            client = MlflowClient()
+
+            # Create mlflow run
+            experiment_id = client.get_experiment_by_name(experiment).experiment_id
+            run = client.create_run(
+                experiment_id=experiment_id,
+                tags={MLFLOW_PARENT_RUN_ID: parent_run_id, MLFLOW_RUN_NAME: "training"},
+            )
+
+            # Run core functionality
+            with mlflow.start_run(run_id=run.info.run_id):
+                trainer = Trainer(config, params)
+                trainer(
+                    callback_params=callback_params,
+                    callback_metrics=callback_metrics,
+                    callback_artifact=callback_artifact,
+                    callback_model=callback_model,
+                )
+
+            return (run.info.run_id,)
+
+        def _serialize_str(str_value: str) -> str:
+            if not isinstance(str_value, str):
+                raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                    str(str_value), str(type(str_value))))
+            return str_value
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Training op', description='')
+        _parser.add_argument("--parent-run-id", dest="parent_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--data-run-id", dest="data_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--config-gcs-path", dest="config_gcs_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--experiment", dest="experiment", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--tuning-run-id", dest="tuning_run_id", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = training_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      envFrom:
+      - secretRef: {name: '{{inputs.parameters.secret_name}}'}
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+      resources:
+        limits: {memory: 4G, cpu: '2'}
+        requests: {memory: 4G, cpu: '2'}
+    inputs:
+      parameters:
+      - {name: config_gcs_uri}
+      - {name: create-mlflow-parent-run-op-run_id}
+      - {name: data-generation-op-run_id}
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: secret_name}
+      - {name: tuning-op-run_id}
+    outputs:
+      parameters:
+      - name: training-op-run_id
+        valueFrom: {path: /tmp/outputs/run_id/data}
+      artifacts:
+      - {name: training-op-run_id, path: /tmp/outputs/run_id/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Training, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--parent-run-id", {"inputValue": "parent_run_id"},
+          "--data-run-id", {"inputValue": "data_run_id"}, "--config-gcs-path", {"inputValue":
+          "config_gcs_path"}, "--experiment", {"inputValue": "experiment"}, {"if":
+          {"cond": {"isPresent": "tuning_run_id"}, "then": ["--tuning-run-id", {"inputValue":
+          "tuning_run_id"}]}}, "----output-paths", {"outputPath": "run_id"}], "command":
+          ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def training_op(\n    parent_run_id,\n    data_run_id,\n    config_gcs_path,\n    experiment,\n    tuning_run_id
+          = None,\n):\n    import os\n    from tempfile import TemporaryDirectory\n\n    import
+          pandas as pd\n    import mlflow\n    from mlflow import MlflowClient\n    from
+          mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME\n\n    from
+          caelum.config_parser import Config\n\n    from src.common.constant import
+          Path, Folder\n    from src.common.utility import (\n        download_file,\n        download_artifacts,\n        setup_folder,\n        callback_params,\n        callback_metrics,\n        callback_artifact,\n        callback_model,\n    )\n\n    from
+          src.operators.training.core import Trainer, select_best_parameters\n\n    #
+          Setup empty folder\n    setup_folder()\n\n    # Downloading config\n    download_file(config_gcs_path,
+          Path.CONFIG)\n\n    # Load config\n    config = Config(Path.CONFIG)\n\n    #
+          Downloading dependencies\n    download_artifacts(data_run_id, Folder.DATA)\n\n    #
+          Get model params from tuning step (if specified)\n    params = {}\n\n    if
+          tuning_run_id:\n        with TemporaryDirectory() as tmpdir:\n            mlflow.artifacts.download_artifacts(\n                run_id=tuning_run_id,
+          artifact_path=\"summary.csv\", dst_path=tmpdir\n            )\n            summary
+          = pd.read_csv(os.path.join(tmpdir, \"summary.csv\"))\n        params = select_best_parameters(summary)\n\n    client
+          = MlflowClient()\n\n    # Create mlflow run\n    experiment_id = client.get_experiment_by_name(experiment).experiment_id\n    run
+          = client.create_run(\n        experiment_id=experiment_id,\n        tags={MLFLOW_PARENT_RUN_ID:
+          parent_run_id, MLFLOW_RUN_NAME: \"training\"},\n    )\n\n    # Run core
+          functionality\n    with mlflow.start_run(run_id=run.info.run_id):\n        trainer
+          = Trainer(config, params)\n        trainer(\n            callback_params=callback_params,\n            callback_metrics=callback_metrics,\n            callback_artifact=callback_artifact,\n            callback_model=callback_model,\n        )\n\n    return
+          (run.info.run_id,)\n\ndef _serialize_str(str_value: str) -> str:\n    if
+          not isinstance(str_value, str):\n        raise TypeError(''Value \"{}\"
+          has type \"{}\" instead of str.''.format(\n            str(str_value), str(type(str_value))))\n    return
+          str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Training
+          op'', description='''')\n_parser.add_argument(\"--parent-run-id\", dest=\"parent_run_id\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--data-run-id\",
+          dest=\"data_run_id\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--config-gcs-path\",
+          dest=\"config_gcs_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--experiment\",
+          dest=\"experiment\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--tuning-run-id\",
+          dest=\"tuning_run_id\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = training_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_str,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "parent_run_id", "type": "String"},
+          {"name": "data_run_id", "type": "String"}, {"name": "config_gcs_path", "type":
+          "String"}, {"name": "experiment", "type": "String"}, {"name": "tuning_run_id",
+          "optional": true, "type": "String"}], "name": "Training op", "outputs":
+          [{"name": "run_id", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"config_gcs_path": "{{inputs.parameters.config_gcs_uri}}",
+          "data_run_id": "{{inputs.parameters.data-generation-op-run_id}}", "experiment":
+          "{{inputs.parameters.experiment}}", "parent_run_id": "{{inputs.parameters.create-mlflow-parent-run-op-run_id}}",
+          "tuning_run_id": "{{inputs.parameters.tuning-op-run_id}}"}', pipelines.kubeflow.org/max_cache_staleness: P0D}
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: tuning-op
+    container:
+      args: [--parent-run-id, '{{inputs.parameters.create-mlflow-parent-run-op-run_id}}',
+        --data-run-id, '{{inputs.parameters.data-generation-op-run_id}}', --config-gcs-path,
+        '{{inputs.parameters.config_gcs_uri}}', --experiment, '{{inputs.parameters.experiment}}',
+        '----output-paths', /tmp/outputs/run_id/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def tuning_op(
+            parent_run_id, data_run_id, config_gcs_path, experiment
+        ):
+            import mlflow
+            from mlflow import MlflowClient
+            from mlflow.utils.mlflow_tags import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME
+
+            from caelum.config_parser import Config
+
+            from src.common.constant import Path, Folder
+            from src.common.utility import (
+                download_file,
+                download_artifacts,
+                setup_folder,
+                callback_artifact,
+            )
+
+            from src.operators.tuning.core import Tuning
+
+            # Setup empty folder
+            setup_folder()
+
+            # Downloading config
+            download_file(config_gcs_path, Path.CONFIG)
+
+            # Load config
+            config = Config(Path.CONFIG)
+
+            # Downloading dependencies
+            download_artifacts(data_run_id, Folder.DATA)
+
+            client = MlflowClient()
+
+            # Create mlflow run
+            experiment_id = client.get_experiment_by_name(experiment).experiment_id
+            run = client.create_run(
+                experiment_id=experiment_id,
+                tags={MLFLOW_PARENT_RUN_ID: parent_run_id, MLFLOW_RUN_NAME: "tuning"},
+            )
+
+            # Run core functionality
+            with mlflow.start_run(run_id=run.info.run_id):
+                tuner = Tuning(config)
+                tuner(callback_artifact=callback_artifact)
+
+            return (run.info.run_id,)
+
+        def _serialize_str(str_value: str) -> str:
+            if not isinstance(str_value, str):
+                raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                    str(str_value), str(type(str_value))))
+            return str_value
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Tuning op', description='')
+        _parser.add_argument("--parent-run-id", dest="parent_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--data-run-id", dest="data_run_id", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--config-gcs-path", dest="config_gcs_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--experiment", dest="experiment", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = tuning_op(**_parsed_args)
+
+        _output_serializers = [
+            _serialize_str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      envFrom:
+      - secretRef: {name: '{{inputs.parameters.secret_name}}'}
+      image: asia-docker.pkg.dev/tk-test-data/kubebuild/workshop/train_model:{{inputs.parameters.docker_image_tag}}
+      resources:
+        limits: {memory: 4G, cpu: '2'}
+        requests: {memory: 4G, cpu: '2'}
+    inputs:
+      parameters:
+      - {name: config_gcs_uri}
+      - {name: create-mlflow-parent-run-op-run_id}
+      - {name: data-generation-op-run_id}
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: secret_name}
+    outputs:
+      parameters:
+      - name: tuning-op-run_id
+        valueFrom: {path: /tmp/outputs/run_id/data}
+      artifacts:
+      - {name: tuning-op-run_id, path: /tmp/outputs/run_id/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Tuning, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--parent-run-id", {"inputValue": "parent_run_id"},
+          "--data-run-id", {"inputValue": "data_run_id"}, "--config-gcs-path", {"inputValue":
+          "config_gcs_path"}, "--experiment", {"inputValue": "experiment"}, "----output-paths",
+          {"outputPath": "run_id"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def tuning_op(\n    parent_run_id, data_run_id, config_gcs_path, experiment\n):\n    import
+          mlflow\n    from mlflow import MlflowClient\n    from mlflow.utils.mlflow_tags
+          import MLFLOW_PARENT_RUN_ID, MLFLOW_RUN_NAME\n\n    from caelum.config_parser
+          import Config\n\n    from src.common.constant import Path, Folder\n    from
+          src.common.utility import (\n        download_file,\n        download_artifacts,\n        setup_folder,\n        callback_artifact,\n    )\n\n    from
+          src.operators.tuning.core import Tuning\n\n    # Setup empty folder\n    setup_folder()\n\n    #
+          Downloading config\n    download_file(config_gcs_path, Path.CONFIG)\n\n    #
+          Load config\n    config = Config(Path.CONFIG)\n\n    # Downloading dependencies\n    download_artifacts(data_run_id,
+          Folder.DATA)\n\n    client = MlflowClient()\n\n    # Create mlflow run\n    experiment_id
+          = client.get_experiment_by_name(experiment).experiment_id\n    run = client.create_run(\n        experiment_id=experiment_id,\n        tags={MLFLOW_PARENT_RUN_ID:
+          parent_run_id, MLFLOW_RUN_NAME: \"tuning\"},\n    )\n\n    # Run core functionality\n    with
+          mlflow.start_run(run_id=run.info.run_id):\n        tuner = Tuning(config)\n        tuner(callback_artifact=callback_artifact)\n\n    return
+          (run.info.run_id,)\n\ndef _serialize_str(str_value: str) -> str:\n    if
+          not isinstance(str_value, str):\n        raise TypeError(''Value \"{}\"
+          has type \"{}\" instead of str.''.format(\n            str(str_value), str(type(str_value))))\n    return
+          str_value\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Tuning
+          op'', description='''')\n_parser.add_argument(\"--parent-run-id\", dest=\"parent_run_id\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--data-run-id\",
+          dest=\"data_run_id\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--config-gcs-path\",
+          dest=\"config_gcs_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--experiment\",
+          dest=\"experiment\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=1)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = tuning_op(**_parsed_args)\n\n_output_serializers
+          = [\n    _serialize_str,\n\n]\n\nimport os\nfor idx, output_file in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "parent_run_id", "type": "String"},
+          {"name": "data_run_id", "type": "String"}, {"name": "config_gcs_path", "type":
+          "String"}, {"name": "experiment", "type": "String"}], "name": "Tuning op",
+          "outputs": [{"name": "run_id", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"config_gcs_path": "{{inputs.parameters.config_gcs_uri}}",
+          "data_run_id": "{{inputs.parameters.data-generation-op-run_id}}", "experiment":
+          "{{inputs.parameters.experiment}}", "parent_run_id": "{{inputs.parameters.create-mlflow-parent-run-op-run_id}}"}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: workshop-retrain-model
+    inputs:
+      parameters:
+      - {name: config_gcs_uri}
+      - {name: docker_image_tag}
+      - {name: experiment}
+      - {name: run_name}
+      - {name: secret_name}
+    dag:
+      tasks:
+      - name: create-mlflow-parent-run-op
+        template: create-mlflow-parent-run-op
+        arguments:
+          parameters:
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: experiment, value: '{{inputs.parameters.experiment}}'}
+          - {name: run_name, value: '{{inputs.parameters.run_name}}'}
+          - {name: secret_name, value: '{{inputs.parameters.secret_name}}'}
+      - name: data-generation-op
+        template: data-generation-op
+        dependencies: [create-mlflow-parent-run-op]
+        arguments:
+          parameters:
+          - {name: config_gcs_uri, value: '{{inputs.parameters.config_gcs_uri}}'}
+          - {name: create-mlflow-parent-run-op-run_id, value: '{{tasks.create-mlflow-parent-run-op.outputs.parameters.create-mlflow-parent-run-op-run_id}}'}
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: experiment, value: '{{inputs.parameters.experiment}}'}
+          - {name: secret_name, value: '{{inputs.parameters.secret_name}}'}
+      - name: evaluation-op
+        template: evaluation-op
+        dependencies: [create-mlflow-parent-run-op, data-generation-op, training-op]
+        arguments:
+          parameters:
+          - {name: config_gcs_uri, value: '{{inputs.parameters.config_gcs_uri}}'}
+          - {name: create-mlflow-parent-run-op-run_id, value: '{{tasks.create-mlflow-parent-run-op.outputs.parameters.create-mlflow-parent-run-op-run_id}}'}
+          - {name: data-generation-op-run_id, value: '{{tasks.data-generation-op.outputs.parameters.data-generation-op-run_id}}'}
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: experiment, value: '{{inputs.parameters.experiment}}'}
+          - {name: secret_name, value: '{{inputs.parameters.secret_name}}'}
+          - {name: training-op-run_id, value: '{{tasks.training-op.outputs.parameters.training-op-run_id}}'}
+      - name: training-op
+        template: training-op
+        dependencies: [create-mlflow-parent-run-op, data-generation-op, tuning-op]
+        arguments:
+          parameters:
+          - {name: config_gcs_uri, value: '{{inputs.parameters.config_gcs_uri}}'}
+          - {name: create-mlflow-parent-run-op-run_id, value: '{{tasks.create-mlflow-parent-run-op.outputs.parameters.create-mlflow-parent-run-op-run_id}}'}
+          - {name: data-generation-op-run_id, value: '{{tasks.data-generation-op.outputs.parameters.data-generation-op-run_id}}'}
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: experiment, value: '{{inputs.parameters.experiment}}'}
+          - {name: secret_name, value: '{{inputs.parameters.secret_name}}'}
+          - {name: tuning-op-run_id, value: '{{tasks.tuning-op.outputs.parameters.tuning-op-run_id}}'}
+      - name: tuning-op
+        template: tuning-op
+        dependencies: [create-mlflow-parent-run-op, data-generation-op]
+        arguments:
+          parameters:
+          - {name: config_gcs_uri, value: '{{inputs.parameters.config_gcs_uri}}'}
+          - {name: create-mlflow-parent-run-op-run_id, value: '{{tasks.create-mlflow-parent-run-op.outputs.parameters.create-mlflow-parent-run-op-run_id}}'}
+          - {name: data-generation-op-run_id, value: '{{tasks.data-generation-op.outputs.parameters.data-generation-op-run_id}}'}
+          - {name: docker_image_tag, value: '{{inputs.parameters.docker_image_tag}}'}
+          - {name: experiment, value: '{{inputs.parameters.experiment}}'}
+          - {name: secret_name, value: '{{inputs.parameters.secret_name}}'}
+  arguments:
+    parameters:
+    - {name: run_name}
+    - {name: experiment}
+    - {name: config_gcs_uri}
+    - {name: secret_name}
+    - {name: docker_image_tag}
+  serviceAccountName: pipeline-runner

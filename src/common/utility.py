@@ -47,6 +47,10 @@ def setup_folder():
     os.makedirs(Folder.DATA, exist_ok=True)
 
 
+def callback_params(params):
+    mlflow.log_params(params)
+
+
 def callback_metrics(metrics):
     for key, value in metrics.items():
         mlflow.log_metric(key, value)

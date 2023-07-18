@@ -6,6 +6,7 @@ from kfp.components import create_component_from_func
 
 from src.operators.create_parent_run import create_mlflow_parent_run_op
 from src.operators.data_generation import data_generation_op
+from src.operators.tuning import tuning_op
 from src.operators.training import training_op
 from src.operators.evaluation import evaluation_op
 
@@ -38,12 +39,19 @@ def pipeline(
     data_generator_run_id = step_2.outputs["run_id"]
     step_2.after(step_1)
 
-    op_3 = create_component_from_func(training_op)(
+    op_tuning = create_component_from_func(tuning_op)(
         parent_run_id, data_generator_run_id, config_gcs_uri, experiment
+    )
+    step_tuning = setup_components(op_tuning, "Tuning", image, secret_name)
+    tuning_run_id = step_tuning.outputs["run_id"]
+    step_tuning.after(step_2)
+
+    op_3 = create_component_from_func(training_op)(
+        parent_run_id, data_generator_run_id, config_gcs_uri, experiment, tuning_run_id
     )
     step_3 = setup_components(op_3, "Training", image, secret_name)
     training_run_id = step_3.outputs["run_id"]
-    step_3.after(step_2)
+    step_3.after(step_tuning)
 
     op_4 = create_component_from_func(evaluation_op)(
         parent_run_id,
